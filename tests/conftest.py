@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -6,11 +8,12 @@ from sqlalchemy.sql import text
 
 from app.infrastructure.embeddings import SimulatedEmbeddingService
 from app.infrastructure.repositories import Base, ChunkRepository
-from app.main import app
 
 TEST_DATABASE_URL = (
     "postgresql+asyncpg://raguser:ragpass@localhost:5432/ragdb"
 )
+
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 
 @pytest.fixture
@@ -18,30 +21,26 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-
-
 @pytest_asyncio.fixture
-async def db_session():
+async def db_engine():
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    await engine.dispose()
 
+
+@pytest_asyncio.fixture
+async def db_session(db_engine):
+    async with db_engine.begin() as conn:
+        await conn.execute(text("DELETE FROM chunks"))
     session_factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
+        db_engine, class_=AsyncSession, expire_on_commit=False
     )
     async with session_factory() as session:
         yield session
         await session.rollback()
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
 
 
 @pytest_asyncio.fixture
@@ -52,3 +51,21 @@ async def repository(db_session: AsyncSession) -> ChunkRepository:
 @pytest_asyncio.fixture
 def embedding_service() -> SimulatedEmbeddingService:
     return SimulatedEmbeddingService(dimension=1536)
+
+
+@pytest_asyncio.fixture
+async def client(db_engine):
+    import app.infrastructure.db as db_module
+    from app.main import app
+
+    db_module.engine = db_engine
+    db_module.async_session = async_sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async with db_engine.begin() as conn:
+        await conn.execute(text("DELETE FROM chunks"))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
