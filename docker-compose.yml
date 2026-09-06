@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ragpass
       POSTGRES_DB: ragdb
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,9 +18,10 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://raguser:ragpass@db:5432/ragdb
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://raguser:ragpass@db:5432/ragdb}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-simulated}
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
       AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-02-01}
@@ -28,8 +29,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - .:/app
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health')
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
   pgdata:

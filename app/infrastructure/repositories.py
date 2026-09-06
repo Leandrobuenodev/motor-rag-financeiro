@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
@@ -18,6 +19,8 @@ class ChunkModel(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     document_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    source_filename: Mapped[str] = mapped_column(Text, nullable=False)
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
@@ -28,6 +31,12 @@ class ChunkModel(Base):
     )
 
 
+@dataclass(frozen=True)
+class ChunkSearchResult:
+    chunk: ChunkModel
+    l2_distance: float
+
+
 class ChunkRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -35,12 +44,16 @@ class ChunkRepository:
     async def insert(
         self,
         document_id: str,
+        source_filename: str,
+        page_number: int,
         chunk_index: int,
         text: str,
         embedding: list[float],
     ) -> ChunkModel:
         chunk = ChunkModel(
             document_id=document_id,
+            source_filename=source_filename,
+            page_number=page_number,
             chunk_index=chunk_index,
             text=text,
             embedding=embedding,
@@ -51,12 +64,15 @@ class ChunkRepository:
 
     async def search_similar(
         self, query_embedding: list[float], top_k: int = 5
-    ) -> list[ChunkModel]:
+    ) -> list[ChunkSearchResult]:
+        distance = ChunkModel.embedding.l2_distance(query_embedding).label(
+            "l2_distance"
+        )
         stmt = (
-            select(ChunkModel)
-            .order_by(ChunkModel.embedding.l2_distance(query_embedding))
-            .limit(top_k)
+            select(ChunkModel, distance).order_by(distance).limit(top_k)
         )
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
+        return [
+            ChunkSearchResult(chunk=row.ChunkModel, l2_distance=float(row.l2_distance))
+            for row in result
+        ]

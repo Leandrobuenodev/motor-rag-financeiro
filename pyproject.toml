@@ -1,7 +1,7 @@
 [project]
 name = "motor-rag-financeiro"
 version = "0.1.0"
-description = "Motor RAG Financeiro — PoC de busca vetorial local para relatórios financeiros"
+description = "PoC for financial PDF ingestion and vector retrieval with pgvector"
 requires-python = ">=3.12"
 
 [tool.ruff]

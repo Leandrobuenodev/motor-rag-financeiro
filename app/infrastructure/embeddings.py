@@ -12,6 +12,9 @@ class EmbeddingService(ABC):
     async def embed(self, texts: list[str]) -> list[list[float]]:
         ...
 
+    async def close(self) -> None:
+        """Release provider resources when the application stops."""
+
 
 class SimulatedEmbeddingService(EmbeddingService):
     def __init__(self, dimension: int = 1536) -> None:
@@ -56,3 +59,33 @@ class AzureEmbeddingService(EmbeddingService):
             input=texts,
         )
         return [item.embedding for item in response.data]
+
+    async def close(self) -> None:
+        await self.client.close()
+
+
+def create_embedding_service() -> EmbeddingService:
+    """Build the configured provider without making a remote API call."""
+    if settings.embedding_provider == "simulated":
+        return SimulatedEmbeddingService()
+
+    missing = [
+        name
+        for name, value in (
+            ("AZURE_OPENAI_ENDPOINT", settings.azure_openai_endpoint),
+            ("AZURE_OPENAI_API_KEY", settings.azure_openai_api_key),
+            (
+                "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+                settings.azure_openai_embedding_deployment,
+            ),
+        )
+        if not value.strip()
+    ]
+    if missing:
+        missing_names = ", ".join(missing)
+        raise ValueError(
+            "EMBEDDING_PROVIDER=azure requires the following settings: "
+            f"{missing_names}"
+        )
+
+    return AzureEmbeddingService()

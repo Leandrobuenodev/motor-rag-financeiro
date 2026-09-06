@@ -21,13 +21,15 @@ class Chunker:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    def split(self, text: str, document_id: str) -> list[Chunk]:
+    def split(
+        self, text: str, document_id: str, start_index: int = 0
+    ) -> list[Chunk]:
         if not text or not text.strip():
             return []
 
         chunks: list[Chunk] = []
         start = 0
-        index = 0
+        index = start_index
 
         while start < len(text):
             end = start + self.chunk_size
@@ -39,6 +41,8 @@ class Chunker:
                     index=index,
                 )
             )
+            if end >= len(text):
+                break
             start += self.chunk_size - self.chunk_overlap
             index += 1
 

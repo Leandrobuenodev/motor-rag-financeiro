@@ -7,7 +7,7 @@ from app.infrastructure.repositories import ChunkRepository
 
 class TestChunkRepository:
     @pytest.mark.anyio
-    async def test_insert_and_search_similar(
+    async def test_insert_and_search_returns_nearest_vector(
         self,
         db_session: AsyncSession,
         repository: ChunkRepository,
@@ -23,22 +23,21 @@ class TestChunkRepository:
         for i, (text, emb) in enumerate(zip(texts, embeddings)):
             await repository.insert(
                 document_id="test-doc-1",
+                source_filename="report.pdf",
+                page_number=1,
                 chunk_index=i,
                 text=text,
                 embedding=emb,
             )
         await db_session.commit()
 
-        query_embedding = (
-            await embedding_service.embed(
-                ["Receita e lucro da empresa no trimestre"]
-            )
-        )[0]
-        results = await repository.search_similar(query_embedding, top_k=2)
+        query_embedding = (await embedding_service.embed([texts[0]]))[0]
+        results = await repository.search_similar(query_embedding, top_k=1)
 
-        assert len(results) == 2
-        assert results[0].document_id == "test-doc-1"
-        assert any("Receita" in r.text for r in results)
+        assert len(results) == 1
+        assert results[0].chunk.document_id == "test-doc-1"
+        assert results[0].chunk.text == texts[0]
+        assert results[0].l2_distance == pytest.approx(0.0, abs=1e-6)
 
     @pytest.mark.anyio
     async def test_insert_multiple_documents(
@@ -52,22 +51,29 @@ class TestChunkRepository:
 
         await repository.insert(
             document_id="doc-a",
+            source_filename="balance-sheet.pdf",
+            page_number=2,
             chunk_index=0,
             text="Balanço ativo circulante",
             embedding=e1,
         )
         await repository.insert(
             document_id="doc-b",
+            source_filename="income-statement.pdf",
+            page_number=3,
             chunk_index=0,
             text="Demonstrativo de resultado",
             embedding=e2,
         )
         await db_session.commit()
 
-        query_emb = (await embedding_service.embed(["balanço financeiro"]))[0]
+        query_emb = (await embedding_service.embed(["Balanço ativo circulante"]))[0]
         results = await repository.search_similar(query_emb, top_k=5)
 
-        assert len(results) >= 1
+        assert results[0].chunk.document_id == "doc-a"
+        assert results[0].chunk.source_filename == "balance-sheet.pdf"
+        assert results[0].chunk.page_number == 2
+        assert results[0].l2_distance == pytest.approx(0.0, abs=1e-6)
 
     @pytest.mark.anyio
     async def test_search_respects_top_k(
@@ -80,6 +86,8 @@ class TestChunkRepository:
         for i, emb in enumerate(embeddings):
             await repository.insert(
                 document_id="doc-multi",
+                source_filename="report.pdf",
+                page_number=1,
                 chunk_index=i,
                 text=f"Texto {i}",
                 embedding=emb,
@@ -90,3 +98,5 @@ class TestChunkRepository:
         results = await repository.search_similar(query_emb, top_k=3)
 
         assert len(results) == 3
+        assert results[0].chunk.chunk_index == 5
+        assert results[0].l2_distance == pytest.approx(0.0, abs=1e-6)
