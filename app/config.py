@@ -1,12 +1,22 @@
+from typing import Literal
+
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://raguser:ragpass@localhost:5432/ragdb"
-    azure_openai_endpoint: str = ""
-    azure_openai_api_key: str = ""
-    azure_openai_api_version: str = "2024-02-01"
-    azure_openai_embedding_deployment: str = "text-embedding-3-small"
+    embedding_provider: Literal["local", "simulated"] = "local"
+    local_embedding_model: str = (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    answer_provider: Literal["opencode-go"] = "opencode-go"
+    answer_model: str = "deepseek-v4-pro"
+    opencode_go_api_key: SecretStr = SecretStr("")
+    opencode_go_endpoint: str = (
+        "https://opencode.ai/zen/go/v1/chat/completions"
+    )
+    answer_timeout_seconds: float = 60.0
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

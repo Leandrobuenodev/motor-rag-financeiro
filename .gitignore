@@ -7,6 +7,11 @@ venv/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.coverage
+htmlcov/
+.idea/
+.vscode/
+.DS_Store
 *.log
 dist/
 build/

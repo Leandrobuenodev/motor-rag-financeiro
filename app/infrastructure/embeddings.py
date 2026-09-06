@@ -1,24 +1,39 @@
+import asyncio
 import hashlib
 import math
+import warnings
 from abc import ABC, abstractmethod
-
-from openai import AsyncAzureOpenAI
+from typing import Any
 
 from app.config import settings
+
+EMBEDDING_DIMENSION = 384
 
 
 class EmbeddingService(ABC):
     @abstractmethod
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         ...
+
+    @abstractmethod
+    async def embed_query(self, text: str) -> list[float]:
+        ...
+
+    async def close(self) -> None:
+        """Release provider resources when the application stops."""
 
 
 class SimulatedEmbeddingService(EmbeddingService):
-    def __init__(self, dimension: int = 1536) -> None:
+    """Deterministic vectors for tests; they have no semantic meaning."""
+
+    def __init__(self, dimension: int = EMBEDDING_DIMENSION) -> None:
         self.dimension = dimension
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return [self._hash_embed(text) for text in texts]
+
+    async def embed_query(self, text: str) -> list[float]:
+        return self._hash_embed(text)
 
     def _hash_embed(self, text: str) -> list[float]:
         result: list[float] = []
@@ -35,24 +50,59 @@ class SimulatedEmbeddingService(EmbeddingService):
         return result
 
 
-class AzureEmbeddingService(EmbeddingService):
+class LocalEmbeddingService(EmbeddingService):
+    """Multilingual ONNX embeddings executed in a worker thread."""
+
     def __init__(
         self,
-        endpoint: str | None = None,
-        api_key: str | None = None,
-        api_version: str | None = None,
-        deployment: str | None = None,
+        model_name: str | None = None,
+        model: Any | None = None,
     ) -> None:
-        self.client = AsyncAzureOpenAI(
-            azure_endpoint=endpoint or settings.azure_openai_endpoint,
-            api_key=api_key or settings.azure_openai_api_key,
-            api_version=api_version or settings.azure_openai_api_version,
-        )
-        self.deployment = deployment or settings.azure_openai_embedding_deployment
+        self.model_name = model_name or settings.local_embedding_model
+        if model is None:
+            from fastembed import TextEmbedding
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        response = await self.client.embeddings.create(
-            model=self.deployment,
-            input=texts,
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"The model .* now uses mean pooling instead of CLS.*",
+                )
+                model = TextEmbedding(model_name=self.model_name)
+        self.model = model
+
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        values = await asyncio.to_thread(
+            lambda: list(self.model.passage_embed(texts))
         )
-        return [item.embedding for item in response.data]
+        return self._normalize(values)
+
+    async def embed_query(self, text: str) -> list[float]:
+        values = await asyncio.to_thread(
+            lambda: list(self.model.query_embed(text))
+        )
+        embeddings = self._normalize(values)
+        return embeddings[0]
+
+    @staticmethod
+    def _normalize(values: list[Any]) -> list[list[float]]:
+        result = [
+            [float(value) for value in vector.tolist()] for vector in values
+        ]
+        if any(len(vector) != EMBEDDING_DIMENSION for vector in result):
+            raise ValueError(
+                f"Embedding model must produce {EMBEDDING_DIMENSION} dimensions"
+            )
+        normalized: list[list[float]] = []
+        for vector in result:
+            norm = math.sqrt(sum(value * value for value in vector))
+            if norm == 0:
+                raise ValueError("Embedding model produced a zero vector")
+            normalized.append([value / norm for value in vector])
+        return normalized
+
+
+def create_embedding_service() -> EmbeddingService:
+    """Build the configured local or test-only embedding provider."""
+    if settings.embedding_provider == "simulated":
+        return SimulatedEmbeddingService()
+    return LocalEmbeddingService()

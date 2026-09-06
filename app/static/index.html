@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="A proof of concept for grounded question answering over financial PDFs with local vector retrieval."
+    >
+    <title>Grounded Financial Document QA</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#workflow">Skip to workflow</a>
+
+    <header class="site-header" aria-label="Application header">
+      <a class="wordmark" href="/" aria-label="Grounded Financial QA home">
+        <span class="wordmark-index">GFQ</span>
+        <span class="wordmark-rule" aria-hidden="true"></span>
+        <span>GROUNDED QA SYSTEM / 01</span>
+      </a>
+      <nav class="header-links" aria-label="Technical links">
+        <a href="/docs">API DOCS</a>
+        <a href="/health">HEALTH</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">APPLIED AI / RETRIEVAL + GROUNDING</p>
+          <h1 id="page-title">
+            <span>FINANCIAL</span>
+            <span>GROUNDED QA</span>
+          </h1>
+          <p class="hero-description">
+            Ask questions over financial reports using local multilingual retrieval,
+            constrained generation, and source metadata resolved by the backend.
+          </p>
+        </div>
+
+        <div class="hero-aside">
+          <div class="embedding-mode" role="status" aria-live="polite">
+            <span class="mode-marker" aria-hidden="true"></span>
+            <div>
+              <p id="embedding-mode-label">LOCAL EMBEDDINGS + DEEPSEEK V4 PRO · OPENCODE GO</p>
+              <p id="embedding-mode-helper">
+                Retrieval runs locally. Only retrieved passage text is sent for answer generation.
+              </p>
+            </div>
+          </div>
+          <div class="system-status" aria-label="System components">
+            <span>FASTAPI</span>
+            <span>POSTGRESQL</span>
+            <span>PGVECTOR</span>
+            <span>TRUSTED SOURCES</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="workflow" class="workflow" aria-label="Document retrieval workflow">
+        <article class="workflow-panel" aria-labelledby="ingestion-heading">
+          <header class="section-heading">
+            <p class="section-index">01 / UPLOAD</p>
+            <h2 id="ingestion-heading">UPLOAD A REPORT</h2>
+            <p>Choose a text-based PDF to index with local multilingual embeddings.</p>
+          </header>
+
+          <form id="upload-form" class="operation-form" novalidate>
+            <div id="drop-zone" class="file-field">
+              <input
+                id="pdf-file"
+                name="file"
+                type="file"
+                accept=".pdf,application/pdf"
+                aria-describedby="file-requirements upload-status"
+              >
+              <label for="pdf-file">
+                <span class="field-label">PDF REPORT</span>
+                <span id="selected-file" class="file-name">DROP OR SELECT A PDF</span>
+                <span class="file-action">SELECT <span aria-hidden="true">↗</span></span>
+              </label>
+            </div>
+            <p id="file-requirements" class="field-help">
+              Text-layer PDFs only. Empty, corrupt, and image-only files are rejected.
+            </p>
+            <button id="upload-button" class="button button-primary" type="submit" disabled>
+              <span>UPLOAD REPORT</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          <div
+            id="upload-status"
+            class="operation-status"
+            role="status"
+            aria-live="polite"
+            data-state="idle"
+          >
+            <span class="status-marker" aria-hidden="true"></span>
+            <span class="status-text">UPLOAD A REPORT TO BEGIN</span>
+          </div>
+          <div id="upload-receipt" class="upload-receipt" hidden>
+            <p id="receipt-filename" class="receipt-filename"></p>
+            <p id="receipt-chunk-count" class="receipt-count"></p>
+            <details class="technical-details">
+              <summary>TECHNICAL DETAILS</summary>
+              <dl>
+                <div>
+                  <dt>DOCUMENT ID</dt>
+                  <dd id="receipt-document-id"></dd>
+                </div>
+              </dl>
+            </details>
+          </div>
+        </article>
+
+        <article class="workflow-panel" aria-labelledby="retrieval-heading">
+          <header class="section-heading">
+            <p class="section-index">02 / ASK</p>
+            <h2 id="retrieval-heading">ASK ABOUT THE REPORT</h2>
+            <p>Retrieve evidence, then generate a concise answer grounded in it.</p>
+          </header>
+
+          <form id="search-form" class="operation-form search-form" novalidate>
+            <div class="query-field">
+              <label class="field-label" for="search-query">ASK A QUESTION</label>
+              <input
+                id="search-query"
+                name="query"
+                type="search"
+                autocomplete="off"
+                placeholder="e.g. What was the adjusted net income in 1Q26?"
+                required
+                aria-describedby="search-status"
+              >
+            </div>
+            <div class="top-k-field">
+              <label class="field-label" for="top-k">PASSAGES</label>
+              <select id="top-k" name="top_k" aria-label="Number of passages">
+                <option value="3">3</option>
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+              </select>
+            </div>
+
+            <div class="prompt-examples" aria-labelledby="prompt-examples-label">
+              <p id="prompt-examples-label">TRY A QUESTION</p>
+              <div>
+                <button type="button" data-prompt="Qual foi o lucro líquido ajustado no trimestre?">
+                  Qual foi o lucro líquido ajustado no trimestre?
+                </button>
+                <button type="button" data-prompt="What was the Basel ratio reported for the period?">
+                  What was the Basel ratio reported for the period?
+                </button>
+                <button type="button" data-prompt="Como evoluiu a inadimplência acima de 90 dias?">
+                  Como evoluiu a inadimplência acima de 90 dias?
+                </button>
+              </div>
+            </div>
+            <button id="search-button" class="button button-primary" type="submit" disabled>
+              <span>GENERATE GROUNDED ANSWER</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          <div
+            id="search-status"
+            class="operation-status"
+            role="status"
+            aria-live="polite"
+            data-state="idle"
+          >
+            <span class="status-marker" aria-hidden="true"></span>
+            <span class="status-text">ENTER A QUESTION WHEN YOUR REPORT IS READY</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="results-section" aria-labelledby="results-heading">
+        <header class="results-header">
+          <div>
+            <p class="section-index">03 / ANSWER</p>
+            <h2 id="results-heading">GROUNDED RESPONSE</h2>
+            <p class="results-helper">
+              Answer first. Trusted source metadata and retrieved evidence remain visible.
+            </p>
+          </div>
+          <p id="results-summary" class="metric-note" hidden></p>
+        </header>
+
+        <div id="results" class="results-list" aria-live="polite">
+          <div class="empty-state">
+            <p>Upload a report and ask a question to begin.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="architecture" aria-labelledby="architecture-heading">
+        <div class="architecture-copy">
+          <p class="section-index">SYSTEM PATH</p>
+          <h2 id="architecture-heading">GROUNDING, KEPT EXPLICIT</h2>
+        </div>
+        <ol class="architecture-flow" aria-label="Processing stages">
+          <li>PDF</li>
+          <li>PAGE CHUNKS</li>
+          <li>EMBEDDINGS</li>
+          <li>PGVECTOR</li>
+          <li>TOP PASSAGES</li>
+          <li>GROUNDED ANSWER</li>
+        </ol>
+        <p class="architecture-note">
+          Multilingual MiniLM embeddings run locally. The generation provider receives only
+          retrieved passage text and internal source IDs; the backend resolves filenames,
+          pages, and chunk indexes from trusted database records.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>GROUNDED FINANCIAL DOCUMENT QA / POC</p>
+      <p>LOCAL RETRIEVAL / BACKEND-RESOLVED SOURCES</p>
+    </footer>
+  </body>
+</html>

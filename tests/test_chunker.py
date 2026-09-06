@@ -23,7 +23,7 @@ class TestChunker:
         chunks = chunker.split("A" * 20, document_id="doc-1")
         assert [c.index for c in chunks] == [0, 1]
 
-    def test_overlap_reduces_total_chunks_and_repeats_content(self):
+    def test_overlap_repeats_content_between_chunks(self):
         chunker = Chunker(chunk_size=10, chunk_overlap=2)
         text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         chunks = chunker.split(text, document_id="doc-1")
@@ -46,6 +46,17 @@ class TestChunker:
         chunks = chunker.split("Hello", document_id="doc-1")
         assert len(chunks) == 1
         assert chunks[0].text == "Hello"
+
+    def test_text_exactly_chunk_size_does_not_create_overlap_only_chunk(self):
+        chunker = Chunker(chunk_size=10, chunk_overlap=2)
+        chunks = chunker.split("A" * 10, document_id="doc-1")
+        assert len(chunks) == 1
+        assert chunks[0].text == "A" * 10
+
+    def test_start_index_is_preserved(self):
+        chunker = Chunker(chunk_size=10, chunk_overlap=0)
+        chunks = chunker.split("A" * 11, document_id="doc-1", start_index=4)
+        assert [chunk.index for chunk in chunks] == [4, 5]
 
     def test_rejects_invalid_chunk_size(self):
         with pytest.raises(ValueError, match="chunk_size must be positive"):
