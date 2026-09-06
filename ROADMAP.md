@@ -14,6 +14,7 @@ This roadmap keeps the project focused on financial document ingestion and vecto
 - Explicit 4xx responses for unsupported, empty, invalid, and textless PDFs.
 - Isolated integration-test schemas plus pytest, Ruff, and mypy validation.
 - Local Docker configuration that excludes secrets from the image context.
+- Lightweight browser interface for PDF ingestion and provenance-aware retrieval.
 
 ## Near-term retrieval improvements
 
@@ -34,7 +35,7 @@ These capabilities would extend the retrieval foundation into a RAG workflow. Th
 ## Intentionally outside the current scope
 
 - OCR for scanned or image-only PDFs.
-- Chat, agents, or a user interface.
+- Chat or agents.
 - Authentication and multi-user tenancy.
 - Cloud deployment and infrastructure as code.
 - Distributed services, messaging, or approximate vector indexes.

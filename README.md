@@ -18,13 +18,14 @@ This repository is a PoC and the retrieval foundation of a possible future RAG s
 - Generates either deterministic simulated vectors or Azure OpenAI embeddings.
 - Stores the chunks and vectors in PostgreSQL with pgvector.
 - Retrieves the nearest chunks using exact L2 distance.
+- Provides a focused browser interface for upload, search, and provenance inspection.
 
 ## What it intentionally does not do
 
 - Generate answers with an LLM or provide chat.
 - Produce citations for generated answers.
 - Run OCR on scanned or image-only PDFs.
-- Provide authentication, a UI, cloud deployment, or distributed infrastructure.
+- Provide authentication, cloud deployment, or distributed infrastructure.
 - Use an approximate nearest-neighbor index; exact search is sufficient for this PoC's intended data volume.
 
 ## Architecture and flow
@@ -78,7 +79,8 @@ Expected health response:
 {"status":"ok","service":"motor-rag-financeiro"}
 ```
 
-Swagger UI is available at <http://localhost:8000/docs>.
+Open the portfolio interface at <http://localhost:8000/>. Swagger UI remains
+available at <http://localhost:8000/docs>.
 
 ## Configuration
 
@@ -105,6 +107,10 @@ These vectors are generated from hashes and **do not provide real semantic simil
 If Azure is selected with required settings missing, application startup fails with a message listing the missing variables. Startup only constructs the client; remote calls occur when upload or search requests require embeddings.
 
 ## Use the API
+
+The browser interface at <http://localhost:8000/> supports the same upload and
+search flow without adding a separate frontend service. The examples below show
+the underlying API directly.
 
 Upload a text-based PDF:
 
@@ -147,6 +153,7 @@ Representative search response:
 
 | Method | Route | Description |
 |---|---|---|
+| `GET` | `/` | Lightweight portfolio interface for ingestion and retrieval |
 | `GET` | `/health` | Process liveness check |
 | `POST` | `/upload` | Extract, chunk, embed, and store a PDF |
 | `POST` | `/search` | Return the nearest stored chunks and provenance |
@@ -176,6 +183,7 @@ Integration tests create a unique temporary PostgreSQL schema and remove that sc
 - Vector dimensionality is fixed at 1,536. Azure deployments must return 1,536-dimensional embeddings.
 - Search performs an exact table scan ordered by L2 distance. This keeps the implementation small and is appropriate only for the PoC's expected volume.
 - Files are processed in memory and only extracted chunks are persisted; the original PDF is not stored.
+- The interface uses framework-free HTML, CSS, and JavaScript served by FastAPI to keep the PoC as one deployable unit.
 
 ## Known limitations
 
@@ -211,6 +219,7 @@ app/
   infrastructure/  # Database, embeddings, and repository
   config.py        # Environment settings
   main.py          # FastAPI app and lifecycle
+  static/           # Browser interface (HTML, CSS, and JavaScript)
 tests/              # Domain, API, provider, and database tests
 Dockerfile
 docker-compose.yml

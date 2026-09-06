@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="A local proof of concept for financial PDF ingestion and provenance-aware vector retrieval."
+    >
+    <title>Financial Document Vector Retrieval</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#workflow">Skip to workflow</a>
+
+    <header class="site-header" aria-label="Application header">
+      <a class="wordmark" href="/" aria-label="Financial Vector Retrieval home">
+        <span class="wordmark-index">FVR</span>
+        <span class="wordmark-rule" aria-hidden="true"></span>
+        <span>RETRIEVAL SYSTEM / 01</span>
+      </a>
+      <nav class="header-links" aria-label="Technical links">
+        <a href="/docs">API DOCS</a>
+        <a href="/health">HEALTH</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">APPLIED AI / RETRIEVAL ENGINEERING</p>
+          <h1 id="page-title">
+            <span>FINANCIAL</span>
+            <span>VECTOR RETRIEVAL</span>
+          </h1>
+          <p class="hero-description">
+            A focused pipeline for text-based PDF ingestion, page-aware chunking,
+            embeddings, and provenance-aware retrieval with PostgreSQL and pgvector.
+          </p>
+        </div>
+
+        <div class="system-status" aria-label="System components">
+          <span>FASTAPI</span>
+          <span>POSTGRESQL</span>
+          <span>PGVECTOR</span>
+          <span>AZURE ADAPTER</span>
+        </div>
+
+        <p class="scope-note">
+          LOCAL PROOF OF CONCEPT <span aria-hidden="true">/</span>
+          RETRIEVAL FOUNDATION FOR RAG SYSTEMS <span aria-hidden="true">/</span>
+          NO ANSWER GENERATION
+        </p>
+      </section>
+
+      <section id="workflow" class="workflow" aria-label="Document retrieval workflow">
+        <article class="workflow-panel" aria-labelledby="ingestion-heading">
+          <header class="section-heading">
+            <p class="section-index">01 / INGESTION</p>
+            <h2 id="ingestion-heading">INDEX A DOCUMENT</h2>
+            <p>Upload one text-based PDF to extract, chunk, embed, and store it.</p>
+          </header>
+
+          <form id="upload-form" class="operation-form" novalidate>
+            <div id="drop-zone" class="file-field">
+              <input
+                id="pdf-file"
+                name="file"
+                type="file"
+                accept=".pdf,application/pdf"
+                aria-describedby="file-requirements upload-status"
+              >
+              <label for="pdf-file">
+                <span class="field-label">SOURCE DOCUMENT</span>
+                <span id="selected-file" class="file-name">SELECT PDF</span>
+                <span class="file-action">BROWSE <span aria-hidden="true">↗</span></span>
+              </label>
+            </div>
+            <p id="file-requirements" class="field-help">
+              Text-layer PDFs only. Empty, corrupt, and image-only files are rejected.
+            </p>
+            <button id="upload-button" class="button button-primary" type="submit" disabled>
+              <span>INGEST DOCUMENT</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          <div
+            id="upload-status"
+            class="operation-status"
+            role="status"
+            aria-live="polite"
+            data-state="idle"
+          >
+            <span class="status-marker" aria-hidden="true"></span>
+            <span class="status-text">AWAITING SOURCE DOCUMENT</span>
+          </div>
+          <dl id="upload-receipt" class="upload-receipt" hidden>
+            <div>
+              <dt>DOCUMENT ID</dt>
+              <dd id="receipt-document-id"></dd>
+            </div>
+            <div>
+              <dt>CHUNKS STORED</dt>
+              <dd id="receipt-chunk-count"></dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="workflow-panel" aria-labelledby="retrieval-heading">
+          <header class="section-heading">
+            <p class="section-index">02 / RETRIEVAL</p>
+            <h2 id="retrieval-heading">QUERY THE INDEX</h2>
+            <p>Rank stored chunks by exact L2 distance from the query vector.</p>
+          </header>
+
+          <form id="search-form" class="operation-form search-form" novalidate>
+            <div class="query-field">
+              <label class="field-label" for="search-query">SEARCH QUERY</label>
+              <input
+                id="search-query"
+                name="query"
+                type="search"
+                autocomplete="off"
+                placeholder="e.g. quarterly revenue growth"
+                required
+                aria-describedby="search-status"
+              >
+            </div>
+            <div class="top-k-field">
+              <label class="field-label" for="top-k">TOP K</label>
+              <input id="top-k" name="top_k" type="number" min="1" max="50" value="5" required>
+            </div>
+            <button id="search-button" class="button button-primary" type="submit" disabled>
+              <span>EXECUTE SEARCH</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          <div
+            id="search-status"
+            class="operation-status"
+            role="status"
+            aria-live="polite"
+            data-state="idle"
+          >
+            <span class="status-marker" aria-hidden="true"></span>
+            <span class="status-text">READY FOR QUERY</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="results-section" aria-labelledby="results-heading">
+        <header class="results-header">
+          <div>
+            <p class="section-index">03 / RETRIEVAL EVIDENCE</p>
+            <h2 id="results-heading">NO SEARCH EXECUTED</h2>
+          </div>
+          <p class="metric-note">L2 DISTANCE <span aria-hidden="true">↓</span> LOWER IS CLOSER</p>
+        </header>
+
+        <div id="results" class="results-list" aria-live="polite">
+          <div class="empty-state">
+            <p>Retrieved chunks will appear here with source, page, and index provenance.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="architecture" aria-labelledby="architecture-heading">
+        <div class="architecture-copy">
+          <p class="section-index">SYSTEM PATH</p>
+          <h2 id="architecture-heading">RETRIEVAL, KEPT EXPLICIT</h2>
+        </div>
+        <ol class="architecture-flow" aria-label="Processing stages">
+          <li>PDF</li>
+          <li>PAGE CHUNKS</li>
+          <li>EMBEDDINGS</li>
+          <li>PGVECTOR</li>
+          <li>RETRIEVAL</li>
+        </ol>
+        <p class="architecture-note">
+          Simulated embeddings validate pipeline behavior but not semantic relevance.
+          Configure the Azure provider for semantic retrieval.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>FINANCIAL DOCUMENT VECTOR RETRIEVAL / POC</p>
+      <p>EXACT SEARCH / PROVENANCE-AWARE OUTPUT</p>
+    </footer>
+  </body>
+</html>
