@@ -5,6 +5,7 @@ const selectedFile = document.querySelector("#selected-file");
 const uploadButton = document.querySelector("#upload-button");
 const uploadStatus = document.querySelector("#upload-status");
 const uploadReceipt = document.querySelector("#upload-receipt");
+const receiptFilename = document.querySelector("#receipt-filename");
 const receiptDocumentId = document.querySelector("#receipt-document-id");
 const receiptChunkCount = document.querySelector("#receipt-chunk-count");
 
@@ -13,8 +14,11 @@ const searchQuery = document.querySelector("#search-query");
 const topK = document.querySelector("#top-k");
 const searchButton = document.querySelector("#search-button");
 const searchStatus = document.querySelector("#search-status");
-const resultsHeading = document.querySelector("#results-heading");
+const promptButtons = document.querySelectorAll("[data-prompt]");
+const resultsSummary = document.querySelector("#results-summary");
 const results = document.querySelector("#results");
+const embeddingModeLabel = document.querySelector("#embedding-mode-label");
+const embeddingModeHelper = document.querySelector("#embedding-mode-helper");
 let searchInFlight = false;
 
 function updateStatus(element, state, message) {
@@ -56,9 +60,9 @@ function isPdf(file) {
 function setSelectedFile(file) {
   uploadReceipt.hidden = true;
   if (!file) {
-    selectedFile.textContent = "SELECT PDF";
+    selectedFile.textContent = "DROP OR SELECT A PDF";
     uploadButton.disabled = true;
-    updateStatus(uploadStatus, "idle", "AWAITING SOURCE DOCUMENT");
+    updateStatus(uploadStatus, "idle", "UPLOAD A REPORT TO BEGIN");
     return;
   }
 
@@ -75,7 +79,7 @@ function setSelectedFile(file) {
   }
 
   uploadButton.disabled = false;
-  updateStatus(uploadStatus, "idle", `${file.name} READY FOR INGESTION`);
+  updateStatus(uploadStatus, "idle", `${file.name} READY TO UPLOAD`);
 }
 
 fileInput.addEventListener("change", () => {
@@ -118,24 +122,26 @@ uploadForm.addEventListener("submit", async (event) => {
   uploadButton.disabled = true;
   fileInput.disabled = true;
   dropZone.dataset.disabled = "true";
-  uploadButton.querySelector("span:first-child").textContent = "INGESTING";
+  uploadButton.querySelector("span:first-child").textContent = "UPLOADING";
   uploadForm.setAttribute("aria-busy", "true");
   uploadReceipt.hidden = true;
-  updateStatus(uploadStatus, "loading", "EXTRACTING, EMBEDDING, AND STORING CHUNKS");
+  updateStatus(uploadStatus, "loading", "PREPARING REPORT FOR SEARCH");
 
   try {
     const formData = new FormData();
     formData.append("file", file);
     const payload = await requestJson("/upload", { method: "POST", body: formData });
 
+    receiptFilename.textContent = payload.source_filename;
     receiptDocumentId.textContent = payload.document_id;
-    receiptChunkCount.textContent = String(payload.chunk_count);
-    uploadReceipt.hidden = false;
-    updateStatus(
-      uploadStatus,
-      "success",
-      `INGESTION COMPLETE — ${payload.chunk_count} CHUNK${payload.chunk_count === 1 ? "" : "S"} STORED`,
+    receiptChunkCount.textContent = (
+      `${Number(payload.chunk_count).toLocaleString("en-US")} `
+      + `passage${payload.chunk_count === 1 ? "" : "s"} indexed`
     );
+    uploadReceipt.hidden = false;
+    updateStatus(uploadStatus, "success", "REPORT READY");
+    updateStatus(searchStatus, "success", "YOUR REPORT IS READY — ASK A QUESTION");
+    renderEmptyState("Your report is ready. Ask a question to retrieve relevant passages.");
     searchQuery.focus();
   } catch (error) {
     updateStatus(uploadStatus, "error", `INGESTION FAILED — ${error.message}`);
@@ -143,7 +149,7 @@ uploadForm.addEventListener("submit", async (event) => {
     fileInput.disabled = false;
     delete dropZone.dataset.disabled;
     uploadForm.removeAttribute("aria-busy");
-    uploadButton.querySelector("span:first-child").textContent = "INGEST DOCUMENT";
+    uploadButton.querySelector("span:first-child").textContent = "UPLOAD REPORT";
     uploadButton.disabled = !isPdf(file) || file.size === 0;
   }
 });
@@ -163,15 +169,13 @@ function metadataRow(label, value, className = "") {
 
 function renderResults(items) {
   results.replaceChildren();
-  resultsHeading.textContent = `${items.length} RETRIEVED CHUNK${items.length === 1 ? "" : "S"}`;
+  resultsSummary.hidden = false;
+  resultsSummary.textContent = (
+    `${items.length} PASSAGE${items.length === 1 ? "" : "S"} · LOWER DISTANCE = CLOSER MATCH`
+  );
 
   if (items.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state";
-    const message = document.createElement("p");
-    message.textContent = "No chunks are stored yet. Ingest a text-based PDF and search again.";
-    empty.append(message);
-    results.append(empty);
+    renderEmptyState("No matching passages found.", false);
     return;
   }
 
@@ -182,34 +186,54 @@ function renderResults(items) {
     const evidence = document.createElement("div");
     const rank = document.createElement("p");
     rank.className = "result-rank";
-    rank.textContent = `RESULT / ${String(index + 1).padStart(2, "0")}`;
+    rank.textContent = `RESULT ${String(index + 1).padStart(2, "0")}`;
     const source = document.createElement("h3");
     source.className = "result-source";
     source.textContent = item.source_filename;
-    const metadata = document.createElement("dl");
-    metadata.className = "result-metadata";
-    metadata.append(
-      metadataRow("PAGE", String(item.page)),
-      metadataRow("CHUNK INDEX", String(item.chunk_index)),
-      metadataRow("L2 DISTANCE", Number(item.l2_distance).toFixed(6), "result-distance"),
-      metadataRow("DOCUMENT ID", item.document_id),
-      metadataRow("CHUNK ID", item.chunk_id),
-    );
-    evidence.append(rank, source, metadata);
+    const page = document.createElement("p");
+    page.className = "result-page";
+    page.textContent = `Page ${item.page}`;
+    evidence.append(rank, source, page);
 
     const content = document.createElement("div");
     content.className = "result-content";
-    const contentLabel = document.createElement("p");
-    contentLabel.className = "result-content-label";
-    contentLabel.textContent = "RETRIEVED TEXT";
     const text = document.createElement("p");
     text.className = "result-text";
     text.textContent = item.text;
-    content.append(contentLabel, text);
+
+    const metadata = document.createElement("dl");
+    metadata.className = "result-metadata";
+    metadata.append(
+      metadataRow("L2 DISTANCE", Number(item.l2_distance).toFixed(6), "result-distance"),
+      metadataRow("CHUNK", String(item.chunk_index)),
+    );
+
+    const technicalDetails = document.createElement("details");
+    technicalDetails.className = "technical-details result-technical-details";
+    const detailsSummary = document.createElement("summary");
+    detailsSummary.textContent = "TECHNICAL DETAILS";
+    const technicalMetadata = document.createElement("dl");
+    technicalMetadata.append(
+      metadataRow("DOCUMENT ID", item.document_id),
+      metadataRow("CHUNK ID", item.chunk_id),
+    );
+    technicalDetails.append(detailsSummary, technicalMetadata);
+    content.append(text, metadata, technicalDetails);
 
     article.append(evidence, content);
     results.append(article);
   });
+}
+
+function renderEmptyState(message, hideSummary = true) {
+  results.replaceChildren();
+  resultsSummary.hidden = hideSummary;
+  const empty = document.createElement("div");
+  empty.className = "empty-state";
+  const copy = document.createElement("p");
+  copy.textContent = message;
+  empty.append(copy);
+  results.append(empty);
 }
 
 function updateSearchButton() {
@@ -221,13 +245,20 @@ function updateSearchButton() {
 
 searchQuery.addEventListener("input", updateSearchButton);
 topK.addEventListener("input", updateSearchButton);
+promptButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    searchQuery.value = button.dataset.prompt;
+    updateSearchButton();
+    searchQuery.focus();
+  });
+});
 
 searchForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const query = searchQuery.value.trim();
   const topKValue = Number(topK.value);
   if (!query || topKValue < 1 || topKValue > 50) {
-    updateStatus(searchStatus, "error", "ENTER A QUERY AND A TOP K VALUE FROM 1 TO 50");
+    updateStatus(searchStatus, "error", "ENTER A QUESTION AND CHOOSE THE NUMBER OF RESULTS");
     updateSearchButton();
     return;
   }
@@ -236,9 +267,10 @@ searchForm.addEventListener("submit", async (event) => {
   searchInFlight = true;
   searchQuery.disabled = true;
   topK.disabled = true;
+  promptButtons.forEach((button) => { button.disabled = true; });
   searchButton.querySelector("span:first-child").textContent = "SEARCHING";
   searchForm.setAttribute("aria-busy", "true");
-  updateStatus(searchStatus, "loading", "EMBEDDING QUERY AND RANKING STORED CHUNKS");
+  updateStatus(searchStatus, "loading", "FINDING MATCHING PASSAGES");
 
   try {
     const payload = await requestJson("/search", {
@@ -250,7 +282,7 @@ searchForm.addEventListener("submit", async (event) => {
     updateStatus(
       searchStatus,
       "success",
-      `SEARCH COMPLETE — ${payload.count} RESULT${payload.count === 1 ? "" : "S"} RETURNED`,
+      `${payload.count} MATCHING PASSAGE${payload.count === 1 ? "" : "S"} FOUND`,
     );
     document.querySelector(".results-section").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
@@ -259,8 +291,24 @@ searchForm.addEventListener("submit", async (event) => {
     searchInFlight = false;
     searchQuery.disabled = false;
     topK.disabled = false;
+    promptButtons.forEach((button) => { button.disabled = false; });
     searchForm.removeAttribute("aria-busy");
-    searchButton.querySelector("span:first-child").textContent = "EXECUTE SEARCH";
+    searchButton.querySelector("span:first-child").textContent = "SEARCH REPORT";
     updateSearchButton();
   }
 });
+
+async function updateEmbeddingMode() {
+  try {
+    const health = await requestJson("/health");
+    if (health.embedding_provider === "azure") {
+      embeddingModeLabel.textContent = "SEMANTIC MODE · AZURE EMBEDDINGS";
+      embeddingModeHelper.textContent = "Semantic ranking uses the configured Azure embedding provider.";
+    }
+  } catch {
+    embeddingModeLabel.textContent = "EMBEDDING MODE UNAVAILABLE";
+    embeddingModeHelper.textContent = "Check the application health endpoint for configuration status.";
+  }
+}
+
+updateEmbeddingMode();

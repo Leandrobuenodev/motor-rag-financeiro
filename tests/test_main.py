@@ -1,5 +1,7 @@
 import pytest
 
+from app.config import settings
+
 
 @pytest.mark.anyio
 async def test_health_endpoint(client):
@@ -8,6 +10,7 @@ async def test_health_endpoint(client):
     data = response.json()
     assert data["status"] == "ok"
     assert data["service"] == "motor-rag-financeiro"
+    assert data["embedding_provider"] == settings.embedding_provider
 
 
 @pytest.mark.anyio
@@ -18,6 +21,9 @@ async def test_portfolio_ui_is_served_at_root(client):
     assert response.headers["content-type"].startswith("text/html")
     assert "FINANCIAL" in response.text
     assert "VECTOR RETRIEVAL" in response.text
+    assert "UPLOAD A REPORT" in response.text
+    assert "ASK ABOUT THE REPORT" in response.text
+    assert "MATCHING PASSAGES" in response.text
     assert "/static/styles.css" in response.text
     assert "/static/app.js" in response.text
 

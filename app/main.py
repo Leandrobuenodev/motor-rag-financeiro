@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routers import get_embedding_service, router
+from app.config import settings
 from app.infrastructure.db import dispose_engine, init_db
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -45,4 +46,8 @@ async def portfolio_ui() -> FileResponse:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "motor-rag-financeiro"}
+    return {
+        "status": "ok",
+        "service": "motor-rag-financeiro",
+        "embedding_provider": settings.embedding_provider,
+    }

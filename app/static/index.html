@@ -35,31 +35,35 @@
             <span>VECTOR RETRIEVAL</span>
           </h1>
           <p class="hero-description">
-            A focused pipeline for text-based PDF ingestion, page-aware chunking,
-            embeddings, and provenance-aware retrieval with PostgreSQL and pgvector.
+            Search and inspect passages across financial reports using vector retrieval.
           </p>
         </div>
 
-        <div class="system-status" aria-label="System components">
-          <span>FASTAPI</span>
-          <span>POSTGRESQL</span>
-          <span>PGVECTOR</span>
-          <span>AZURE ADAPTER</span>
+        <div class="hero-aside">
+          <div class="embedding-mode" role="status" aria-live="polite">
+            <span class="mode-marker" aria-hidden="true"></span>
+            <div>
+              <p id="embedding-mode-label">DEMO MODE · SIMULATED EMBEDDINGS</p>
+              <p id="embedding-mode-helper">
+                Pipeline validation only. Semantic ranking requires the Azure embedding provider.
+              </p>
+            </div>
+          </div>
+          <div class="system-status" aria-label="System components">
+            <span>FASTAPI</span>
+            <span>POSTGRESQL</span>
+            <span>PGVECTOR</span>
+            <span>PAGE PROVENANCE</span>
+          </div>
         </div>
-
-        <p class="scope-note">
-          LOCAL PROOF OF CONCEPT <span aria-hidden="true">/</span>
-          RETRIEVAL FOUNDATION FOR RAG SYSTEMS <span aria-hidden="true">/</span>
-          NO ANSWER GENERATION
-        </p>
       </section>
 
       <section id="workflow" class="workflow" aria-label="Document retrieval workflow">
         <article class="workflow-panel" aria-labelledby="ingestion-heading">
           <header class="section-heading">
-            <p class="section-index">01 / INGESTION</p>
-            <h2 id="ingestion-heading">INDEX A DOCUMENT</h2>
-            <p>Upload one text-based PDF to extract, chunk, embed, and store it.</p>
+            <p class="section-index">01 / UPLOAD</p>
+            <h2 id="ingestion-heading">UPLOAD A REPORT</h2>
+            <p>Choose a text-based PDF to index.</p>
           </header>
 
           <form id="upload-form" class="operation-form" novalidate>
@@ -72,16 +76,16 @@
                 aria-describedby="file-requirements upload-status"
               >
               <label for="pdf-file">
-                <span class="field-label">SOURCE DOCUMENT</span>
-                <span id="selected-file" class="file-name">SELECT PDF</span>
-                <span class="file-action">BROWSE <span aria-hidden="true">↗</span></span>
+                <span class="field-label">PDF REPORT</span>
+                <span id="selected-file" class="file-name">DROP OR SELECT A PDF</span>
+                <span class="file-action">SELECT <span aria-hidden="true">↗</span></span>
               </label>
             </div>
             <p id="file-requirements" class="field-help">
               Text-layer PDFs only. Empty, corrupt, and image-only files are rejected.
             </p>
             <button id="upload-button" class="button button-primary" type="submit" disabled>
-              <span>INGEST DOCUMENT</span>
+              <span>UPLOAD REPORT</span>
               <span aria-hidden="true">→</span>
             </button>
           </form>
@@ -94,46 +98,68 @@
             data-state="idle"
           >
             <span class="status-marker" aria-hidden="true"></span>
-            <span class="status-text">AWAITING SOURCE DOCUMENT</span>
+            <span class="status-text">UPLOAD A REPORT TO BEGIN</span>
           </div>
-          <dl id="upload-receipt" class="upload-receipt" hidden>
-            <div>
-              <dt>DOCUMENT ID</dt>
-              <dd id="receipt-document-id"></dd>
-            </div>
-            <div>
-              <dt>CHUNKS STORED</dt>
-              <dd id="receipt-chunk-count"></dd>
-            </div>
-          </dl>
+          <div id="upload-receipt" class="upload-receipt" hidden>
+            <p id="receipt-filename" class="receipt-filename"></p>
+            <p id="receipt-chunk-count" class="receipt-count"></p>
+            <details class="technical-details">
+              <summary>TECHNICAL DETAILS</summary>
+              <dl>
+                <div>
+                  <dt>DOCUMENT ID</dt>
+                  <dd id="receipt-document-id"></dd>
+                </div>
+              </dl>
+            </details>
+          </div>
         </article>
 
         <article class="workflow-panel" aria-labelledby="retrieval-heading">
           <header class="section-heading">
-            <p class="section-index">02 / RETRIEVAL</p>
-            <h2 id="retrieval-heading">QUERY THE INDEX</h2>
-            <p>Rank stored chunks by exact L2 distance from the query vector.</p>
+            <p class="section-index">02 / ASK</p>
+            <h2 id="retrieval-heading">ASK ABOUT THE REPORT</h2>
+            <p>Enter a question or topic you want to find in the document.</p>
           </header>
 
           <form id="search-form" class="operation-form search-form" novalidate>
             <div class="query-field">
-              <label class="field-label" for="search-query">SEARCH QUERY</label>
+              <label class="field-label" for="search-query">ASK A QUESTION</label>
               <input
                 id="search-query"
                 name="query"
                 type="search"
                 autocomplete="off"
-                placeholder="e.g. quarterly revenue growth"
+                placeholder="e.g. What was the adjusted net income in 1Q26?"
                 required
                 aria-describedby="search-status"
               >
             </div>
             <div class="top-k-field">
-              <label class="field-label" for="top-k">TOP K</label>
-              <input id="top-k" name="top_k" type="number" min="1" max="50" value="5" required>
+              <label class="field-label" for="top-k">RESULTS</label>
+              <select id="top-k" name="top_k" aria-label="Number of passages">
+                <option value="3">3</option>
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+              </select>
+            </div>
+
+            <div class="prompt-examples" aria-labelledby="prompt-examples-label">
+              <p id="prompt-examples-label">TRY A DEMO QUESTION</p>
+              <div>
+                <button type="button" data-prompt="What was adjusted net income in 1Q26?">
+                  What was adjusted net income in 1Q26?
+                </button>
+                <button type="button" data-prompt="What was the Basel ratio in March 2026?">
+                  What was the Basel ratio in March 2026?
+                </button>
+                <button type="button" data-prompt="What was the 90-day delinquency ratio?">
+                  What was the 90-day delinquency ratio?
+                </button>
+              </div>
             </div>
             <button id="search-button" class="button button-primary" type="submit" disabled>
-              <span>EXECUTE SEARCH</span>
+              <span>SEARCH REPORT</span>
               <span aria-hidden="true">→</span>
             </button>
           </form>
@@ -146,7 +172,7 @@
             data-state="idle"
           >
             <span class="status-marker" aria-hidden="true"></span>
-            <span class="status-text">READY FOR QUERY</span>
+            <span class="status-text">ENTER A QUESTION WHEN YOUR REPORT IS READY</span>
           </div>
         </article>
       </section>
@@ -154,15 +180,16 @@
       <section class="results-section" aria-labelledby="results-heading">
         <header class="results-header">
           <div>
-            <p class="section-index">03 / RETRIEVAL EVIDENCE</p>
-            <h2 id="results-heading">NO SEARCH EXECUTED</h2>
+            <p class="section-index">03 / RESULTS</p>
+            <h2 id="results-heading">MATCHING PASSAGES</h2>
+            <p class="results-helper">Review the retrieved excerpts and their source pages.</p>
           </div>
-          <p class="metric-note">L2 DISTANCE <span aria-hidden="true">↓</span> LOWER IS CLOSER</p>
+          <p id="results-summary" class="metric-note" hidden></p>
         </header>
 
         <div id="results" class="results-list" aria-live="polite">
           <div class="empty-state">
-            <p>Retrieved chunks will appear here with source, page, and index provenance.</p>
+            <p>Upload a report to begin.</p>
           </div>
         </div>
       </section>
@@ -180,8 +207,8 @@
           <li>RETRIEVAL</li>
         </ol>
         <p class="architecture-note">
-          Simulated embeddings validate pipeline behavior but not semantic relevance.
-          Configure the Azure provider for semantic retrieval.
+          Embeddings are selected by configuration. Exact L2 search preserves the
+          source filename, page, and passage index for every result.
         </p>
       </section>
     </main>

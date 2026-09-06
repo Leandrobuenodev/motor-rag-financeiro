@@ -76,7 +76,7 @@ curl http://localhost:8000/health
 Expected health response:
 
 ```json
-{"status":"ok","service":"motor-rag-financeiro"}
+{"status":"ok","service":"motor-rag-financeiro","embedding_provider":"simulated"}
 ```
 
 Open the portfolio interface at <http://localhost:8000/>. Swagger UI remains
@@ -154,7 +154,7 @@ Representative search response:
 | Method | Route | Description |
 |---|---|---|
 | `GET` | `/` | Lightweight portfolio interface for ingestion and retrieval |
-| `GET` | `/health` | Process liveness check |
+| `GET` | `/health` | Process liveness and configured embedding provider |
 | `POST` | `/upload` | Extract, chunk, embed, and store a PDF |
 | `POST` | `/search` | Return the nearest stored chunks and provenance |
 
