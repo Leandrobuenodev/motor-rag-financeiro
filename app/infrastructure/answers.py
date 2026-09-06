@@ -142,8 +142,12 @@ class OpenCodeGoAnswerService(AnswerService):
             "Answer in the same language as the question and be concise. If the "
             "passages do not contain enough evidence, say so and set "
             "insufficient_evidence to true. Cite only source_id integers that directly "
-            "support the answer. Never invent or repeat filenames, page numbers, or "
-            "chunk identifiers. Return only valid JSON with this exact shape: "
+            "support the answer. Distinguish reporting periods carefully: use a value "
+            "only when the passage explicitly associates it with the requested period; "
+            "do not select the first number in a flattened table. Never invent or "
+            "repeat filenames, page numbers, or chunk identifiers. Return only valid "
+            "JSON with "
+            "this exact shape: "
             '{"answer":"...","source_ids":[1],"insufficient_evidence":false}.'
         )
 
@@ -176,7 +180,10 @@ class OpenCodeGoAnswerService(AnswerService):
                 "The answer provider did not return the required JSON"
             )
         try:
-            return _ProviderPayload.model_validate_json(candidate[start : end + 1])
+            return cast(
+                _ProviderPayload,
+                _ProviderPayload.model_validate_json(candidate[start : end + 1]),
+            )
         except ValidationError as exc:
             raise AnswerProviderError(
                 "The answer provider returned invalid structured output"

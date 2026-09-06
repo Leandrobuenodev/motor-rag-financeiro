@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import cast
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -107,7 +108,7 @@ async def upload_pdf(
         result = await use_case.execute(filename=file.filename, file_content=content)
     except (InvalidPdfError, NoExtractableTextError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return UploadResponse.model_validate(result)
+    return cast(UploadResponse, UploadResponse.model_validate(result))
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -118,9 +119,9 @@ async def search_chunks(
 ) -> SearchResponse:
     use_case = SearchUseCase(session, embedding_service)
     results = await use_case.execute(query=request.query, top_k=request.top_k)
-    return SearchResponse.model_validate(
+    return cast(SearchResponse, SearchResponse.model_validate(
         {"results": results, "count": len(results)}
-    )
+    ))
 
 
 @router.post("/answer", response_model=AnswerResponse)
@@ -142,4 +143,4 @@ async def answer_question(
             status_code=502,
             detail="The configured answer provider could not generate a response",
         ) from exc
-    return AnswerResponse.model_validate(result)
+    return cast(AnswerResponse, AnswerResponse.model_validate(result))

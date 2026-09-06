@@ -1,3 +1,4 @@
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -41,6 +42,12 @@ class ChunkSearchResult:
     l2_distance: float
 
 
+@dataclass(frozen=True)
+class LexicalSearchResult:
+    chunk: ChunkModel
+    lexical_score: float
+
+
 class ChunkRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -80,3 +87,46 @@ class ChunkRepository:
             ChunkSearchResult(chunk=row.ChunkModel, l2_distance=float(row.l2_distance))
             for row in result
         ]
+
+    async def search_lexical(
+        self, query: str, top_k: int = 20
+    ) -> list[LexicalSearchResult]:
+        """PostgreSQL-native lexical retrieval for exact financial terminology."""
+        terms = [term for term in re.findall(r"[\wÀ-ÿ]+", query) if len(term) >= 3]
+        if not terms:
+            return []
+        # OR/prefix matching avoids losing a passage when PDF extraction splits a
+        # token such as ``1T26`` across whitespace.
+        tsquery = " | ".join(f"{term}:*" for term in terms)
+        vector = func.to_tsvector("simple", ChunkModel.text)
+        parsed_query = func.to_tsquery("simple", tsquery)
+        score = func.ts_rank_cd(vector, parsed_query).label("lexical_score")
+        stmt = (
+            select(ChunkModel, score)
+            .where(vector.op("@@")(parsed_query))
+            .order_by(score.desc())
+            .limit(top_k)
+        )
+        result = await self.session.execute(stmt)
+        return [
+            LexicalSearchResult(
+                chunk=row.ChunkModel, lexical_score=float(row.lexical_score)
+            )
+            for row in result
+        ]
+
+    async def get_neighbors(
+        self, document_id: str, page_number: int, chunk_index: int
+    ) -> list[ChunkModel]:
+        """Return same-page adjacent chunks for compact table/context expansion."""
+        stmt = (
+            select(ChunkModel)
+            .where(
+                ChunkModel.document_id == document_id,
+                ChunkModel.page_number == page_number,
+                ChunkModel.chunk_index.between(chunk_index - 1, chunk_index + 1),
+            )
+            .order_by(ChunkModel.chunk_index)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars())

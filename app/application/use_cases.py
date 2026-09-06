@@ -1,3 +1,7 @@
+import asyncio
+import re
+import unicodedata
+from dataclasses import dataclass
 from io import BytesIO
 from typing import TypedDict
 
@@ -9,7 +13,7 @@ from app.domain.chunker import Chunk, Chunker
 from app.domain.document import Document
 from app.infrastructure.answers import AnswerService, GroundingPassage
 from app.infrastructure.embeddings import EmbeddingService
-from app.infrastructure.repositories import ChunkRepository
+from app.infrastructure.repositories import ChunkModel, ChunkRepository
 
 
 class InvalidPdfError(ValueError):
@@ -59,6 +63,13 @@ class AnswerResult(TypedDict):
     insufficient_evidence: bool
     citations: list[AnswerCitation]
     retrieved_passages: list[SearchResult]
+
+
+@dataclass
+class FusedCandidate:
+    chunk: ChunkModel
+    distance: float
+    score: float
 
 
 class UploadUseCase:
@@ -160,21 +171,137 @@ class SearchUseCase:
 
     async def execute(self, query: str, top_k: int = 5) -> list[SearchResult]:
         query_embedding = await self.embedding_service.embed_query(query)
-        results = await self.repository.search_similar(
-            query_embedding, top_k=top_k
+        # Keep a broad internal pool; only the final top_k passages reach the
+        # answer model. This prevents a weak semantic rank from hiding an exact
+        # financial-term match.
+        candidate_limit = max(300, top_k * 20)
+        semantic = await self.repository.search_similar(
+            query_embedding, top_k=candidate_limit
         )
-        return [
-            {
-                "chunk_id": result.chunk.id,
-                "document_id": result.chunk.document_id,
-                "source_filename": result.chunk.source_filename,
-                "page": result.chunk.page_number,
-                "chunk_index": result.chunk.chunk_index,
-                "text": result.chunk.text,
-                "l2_distance": result.l2_distance,
-            }
-            for result in results
-        ]
+        normalized_query = self._normalize_query(query)
+        lexical = await self.repository.search_lexical(
+            normalized_query, top_k=candidate_limit
+        )
+
+        # Reciprocal Rank Fusion keeps the two rank scales comparable and makes
+        # exact report terminology competitive with semantic matches.
+        fused: dict[str, FusedCandidate] = {}
+        for rank, semantic_result in enumerate(semantic, start=1):
+            fused[semantic_result.chunk.id] = FusedCandidate(
+                chunk=semantic_result.chunk,
+                distance=semantic_result.l2_distance,
+                score=1.0 / (60 + rank),
+            )
+        for rank, lexical_result in enumerate(lexical, start=1):
+            item = fused.setdefault(
+                lexical_result.chunk.id,
+                FusedCandidate(
+                    chunk=lexical_result.chunk, distance=2.0, score=0.0
+                ),
+            )
+            item.score += 1.0 / (60 + rank)
+
+        query_tokens = self._tokens(normalized_query)
+        ranked = sorted(
+            fused.values(),
+            key=lambda item: (
+                item.score
+                + self._metric_bonus(normalized_query, item.chunk.text)
+                + 0.1
+                * self._overlap(
+                    query_tokens, self._tokens(item.chunk.text)
+                ),
+                -item.distance,
+            ),
+            reverse=True,
+        )[:top_k]
+        results = [self._result(item) for item in ranked]
+        expanded = await asyncio.gather(
+            *(self._expand_context(result) for result in results)
+        )
+        return list(expanded)
+
+    @staticmethod
+    def _metric_bonus(query: str, text: str) -> float:
+        query_lower = query.casefold()
+        text_tokens = SearchUseCase._tokens(text)
+        aliases = (
+            ("lucro", "líquido", "ajustado"),
+            ("margem", "financeira", "bruta"),
+            ("inadimplência", "inad", "90d"),
+            ("índice", "basileia"),
+            ("carteira", "crédito", "expandida"),
+        )
+        for alias in aliases:
+            if all(term.casefold() in query_lower for term in alias):
+                normalized_alias = SearchUseCase._tokens(" ".join(alias))
+                if len(normalized_alias & text_tokens) >= max(
+                    2, len(normalized_alias) - 1
+                ):
+                    return 0.5
+        return 0.0
+
+    async def _expand_context(self, result: SearchResult) -> SearchResult:
+        text = result["text"]
+        # Tables often flatten into numeric rows. Keep a small same-page window so
+        # period headers and their values reach the generator together.
+        if not (
+            len(re.findall(r"\d", text)) >= 3
+            and (
+                "%" in text
+                or re.search(
+                    r"\b(?:mar|jun|sep|dec|1t|2t|3t|4t)\b", text, re.I
+                )
+            )
+        ):
+            return result
+        neighbors = await self.repository.get_neighbors(
+            result["document_id"], result["page"], result["chunk_index"]
+        )
+        context = "\n\n".join(chunk.text for chunk in neighbors)
+        if context and text not in context:
+            context = f"{context}\n\n{text}"
+        return {**result, "text": context or text}
+
+    @staticmethod
+    def _normalize_query(query: str) -> str:
+        """Add stable bilingual finance terminology for lexical recall."""
+        normalized = query
+        aliases = {
+            "adjusted net income": "lucro líquido ajustado",
+            "gross financial margin": "margem financeira bruta",
+            "90-day delinquency ratio": "inadimplência inad+90d",
+            "basel ratio": "índice de basileia",
+            "expanded credit portfolio": "carteira de crédito expandida",
+        }
+        lowered = query.casefold()
+        for english, portuguese in aliases.items():
+            if english in lowered:
+                normalized = f"{normalized} {portuguese}"
+        return normalized
+
+    @staticmethod
+    def _tokens(value: str) -> set[str]:
+        normalized = unicodedata.normalize("NFKD", value)
+        normalized = "".join(c for c in normalized if not unicodedata.combining(c))
+        return set(re.findall(r"[a-z0-9]{3,}", normalized.lower()))
+
+    @staticmethod
+    def _overlap(query_tokens: set[str], text_tokens: set[str]) -> float:
+        return len(query_tokens & text_tokens) / max(len(query_tokens), 1)
+
+    @staticmethod
+    def _result(item: FusedCandidate) -> SearchResult:
+        chunk = item.chunk
+        return {
+            "chunk_id": chunk.id,
+            "document_id": chunk.document_id,
+            "source_filename": chunk.source_filename,
+            "page": chunk.page_number,
+            "chunk_index": chunk.chunk_index,
+            "text": chunk.text,
+            "l2_distance": item.distance,
+        }
 
 
 class AnswerUseCase:

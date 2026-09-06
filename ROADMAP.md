@@ -18,10 +18,13 @@ This roadmap keeps the project focused on a small grounded-QA workflow over fina
 - Grounded answer generation with DeepSeek V4 Pro through OpenCode Go.
 - Backend-validated source IDs mapped to trusted filename, page, and chunk metadata.
 - Explicit insufficient-evidence behavior for missing or invalid supporting sources.
+- Hybrid semantic/lexical candidate retrieval with Reciprocal Rank Fusion.
+- Lightweight terminology reranking and bounded page-local context expansion for tables.
 
 ## Near-term retrieval improvements
 
-- Build a small, versioned evaluation set for financial retrieval queries.
+- Expand the small, versioned Portuguese/English evaluation set and record candidate,
+  fused, final-context, answer, and citation outcomes separately.
 - Measure Portuguese and cross-language retrieval quality with the local embedding model.
 - Evaluate citation correctness and insufficient-evidence behavior.
 - Evaluate alternative chunk sizes and retrieval strategies using evidence from the evaluation set.

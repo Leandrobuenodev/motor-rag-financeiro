@@ -12,7 +12,11 @@ This repository is a small RAG proof of concept for portfolio demonstration. It 
 - Extracts text page by page and creates fixed-size overlapping chunks.
 - Generates 384-dimensional multilingual MiniLM embeddings locally through ONNX.
 - Stores chunks and vectors in PostgreSQL with pgvector.
-- Retrieves the nearest passages using exact L2 distance.
+- Retrieves a broad candidate pool with exact pgvector L2 search and PostgreSQL
+  full-text lexical search, then fuses ranks with Reciprocal Rank Fusion and applies
+  a small deterministic terminology rerank.
+- Adds bounded same-page context around table-like passages so period headers stay
+  near their values.
 - Sends only the question, retrieved passage text, and temporary source IDs to DeepSeek V4 Pro through OpenCode Go.
 - Maps the model's source IDs back to filename, page, and chunk metadata held by the backend.
 - Shows the grounded answer, verified sources, and expandable retrieval evidence in a framework-free browser interface.
@@ -38,7 +42,9 @@ POST /upload
 
 POST /answer
   -> local multilingual MiniLM query embedding
-  -> exact pgvector L2 retrieval
+  -> semantic + PostgreSQL lexical candidate retrieval
+  -> Reciprocal Rank Fusion + terminology reranking
+  -> bounded page-local context expansion
   -> top passages + internal source IDs
   -> DeepSeek V4 Pro through OpenCode Go
   -> validate returned source IDs
@@ -238,7 +244,12 @@ Integration tests override the local embedding model with deterministic vectors,
 - Chunk indexes remain sequential across all extracted pages in an upload; page numbers are 1-based.
 - Upload embeds all chunks from one document as a batch. CPU inference runs in a worker thread so it does not block the event loop.
 - Search is an exact table scan ordered by L2 distance. This is appropriate for a small PoC dataset and avoids an unjustified ANN index.
-- The top retrieved passages are the complete generation context. There is no hidden document-wide context or conversation memory.
+- Retrieval uses a larger internal candidate pool than the final context. Only the
+  strongest passages (and bounded page-local neighbors for table-like evidence) are
+  sent to the generator; there is no hidden document-wide context.
+- Lexical search improves recall for exact financial terms, while RRF keeps semantic
+  and lexical rank scales explainable. The deterministic rerank is intentionally
+  lightweight rather than another paid model.
 - Citations identify supporting chunks, not sentence-level claim spans.
 - Files are processed in memory. The original PDF is not stored; extracted text and vectors are persisted.
 - The framework-free interface keeps the API and visual demo in one service.
@@ -247,8 +258,9 @@ Integration tests override the local embedding model with deterministic vectors,
 
 - pypdf extraction can lose layout, table structure, or reading order.
 - Scanned/image-only PDFs are rejected because OCR is outside scope.
-- There is no retrieval or answer-quality evaluation set yet.
-- There is no reranker, hybrid keyword search, document filter, or deduplication.
+- The evaluation corpus is a small report-specific regression suite, not a benchmark
+  for general financial retrieval quality.
+- PDF table extraction remains imperfect; flattened rows can still be ambiguous.
 - Requests have a timeout but no automatic retry, rate-limit handling, or token-budget estimator.
 - The health endpoint reports process liveness and provider names; it does not call the database or external provider.
 - Existing vectors must be recreated if the embedding model or dimension changes.
