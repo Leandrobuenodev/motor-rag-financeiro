@@ -21,11 +21,13 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://raguser:ragpass@db:5432/ragdb}
-      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-simulated}
-      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
-      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-02-01}
-      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: ${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-text-embedding-3-small}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      LOCAL_EMBEDDING_MODEL: ${LOCAL_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+      ANSWER_PROVIDER: ${ANSWER_PROVIDER:-opencode-go}
+      ANSWER_MODEL: ${ANSWER_MODEL:-deepseek-v4-pro}
+      OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:-}
+      OPENCODE_GO_ENDPOINT: ${OPENCODE_GO_ENDPOINT:-https://opencode.ai/zen/go/v1/chat/completions}
+      ANSWER_TIMEOUT_SECONDS: ${ANSWER_TIMEOUT_SECONDS:-60}
     depends_on:
       db:
         condition: service_healthy
@@ -37,7 +39,8 @@ services:
         - import urllib.request; urllib.request.urlopen('http://localhost:8000/health')
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 15s
 
 volumes:
   pgdata:

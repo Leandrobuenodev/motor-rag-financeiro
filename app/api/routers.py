@@ -5,10 +5,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.use_cases import (
+    AnswerUseCase,
     InvalidPdfError,
     NoExtractableTextError,
     SearchUseCase,
     UploadUseCase,
+)
+from app.infrastructure.answers import (
+    AnswerConfigurationError,
+    AnswerProviderError,
+    AnswerService,
+    create_answer_service,
 )
 from app.infrastructure.db import get_session
 from app.infrastructure.embeddings import EmbeddingService, create_embedding_service
@@ -51,9 +58,35 @@ class SearchResponse(BaseModel):
     count: int = Field(ge=0)
 
 
+class AnswerRequest(BaseModel):
+    question: str = Field(..., min_length=1, pattern=r"\S")
+    top_k: int = Field(default=5, ge=1, le=10)
+
+
+class AnswerCitationResponse(BaseModel):
+    source_id: int = Field(ge=1)
+    chunk_id: str
+    document_id: str
+    source_filename: str
+    page: int = Field(ge=1)
+    chunk_index: int = Field(ge=0)
+
+
+class AnswerResponse(BaseModel):
+    answer: str
+    insufficient_evidence: bool
+    citations: list[AnswerCitationResponse]
+    retrieved_passages: list[SearchResultResponse]
+
+
 @lru_cache(maxsize=1)
 def get_embedding_service() -> EmbeddingService:
     return create_embedding_service()
+
+
+@lru_cache(maxsize=1)
+def get_answer_service() -> AnswerService:
+    return create_answer_service()
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -88,3 +121,25 @@ async def search_chunks(
     return SearchResponse.model_validate(
         {"results": results, "count": len(results)}
     )
+
+
+@router.post("/answer", response_model=AnswerResponse)
+async def answer_question(
+    request: AnswerRequest,
+    session: AsyncSession = Depends(get_session),
+    embedding_service: EmbeddingService = Depends(get_embedding_service),
+    answer_service: AnswerService = Depends(get_answer_service),
+) -> AnswerResponse:
+    use_case = AnswerUseCase(session, embedding_service, answer_service)
+    try:
+        result = await use_case.execute(
+            question=request.question, top_k=request.top_k
+        )
+    except AnswerConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except AnswerProviderError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="The configured answer provider could not generate a response",
+        ) from exc
+    return AnswerResponse.model_validate(result)

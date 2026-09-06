@@ -19,7 +19,7 @@ const resultsSummary = document.querySelector("#results-summary");
 const results = document.querySelector("#results");
 const embeddingModeLabel = document.querySelector("#embedding-mode-label");
 const embeddingModeHelper = document.querySelector("#embedding-mode-helper");
-let searchInFlight = false;
+let answerInFlight = false;
 
 function updateStatus(element, state, message) {
   element.dataset.state = state;
@@ -55,6 +55,17 @@ async function requestJson(url, options) {
 
 function isPdf(file) {
   return file && file.name.toLowerCase().endsWith(".pdf");
+}
+
+function renderEmptyState(message, hideSummary = true) {
+  results.replaceChildren();
+  resultsSummary.hidden = hideSummary;
+  const empty = document.createElement("div");
+  empty.className = "empty-state";
+  const copy = document.createElement("p");
+  copy.textContent = message;
+  empty.append(copy);
+  results.append(empty);
 }
 
 function setSelectedFile(file) {
@@ -125,7 +136,7 @@ uploadForm.addEventListener("submit", async (event) => {
   uploadButton.querySelector("span:first-child").textContent = "UPLOADING";
   uploadForm.setAttribute("aria-busy", "true");
   uploadReceipt.hidden = true;
-  updateStatus(uploadStatus, "loading", "PREPARING REPORT FOR SEARCH");
+  updateStatus(uploadStatus, "loading", "EXTRACTING AND EMBEDDING REPORT");
 
   try {
     const formData = new FormData();
@@ -141,7 +152,7 @@ uploadForm.addEventListener("submit", async (event) => {
     uploadReceipt.hidden = false;
     updateStatus(uploadStatus, "success", "REPORT READY");
     updateStatus(searchStatus, "success", "YOUR REPORT IS READY — ASK A QUESTION");
-    renderEmptyState("Your report is ready. Ask a question to retrieve relevant passages.");
+    renderEmptyState("Your report is ready. Ask a question to generate a grounded answer.");
     searchQuery.focus();
   } catch (error) {
     updateStatus(uploadStatus, "error", `INGESTION FAILED — ${error.message}`);
@@ -167,79 +178,139 @@ function metadataRow(label, value, className = "") {
   return row;
 }
 
-function renderResults(items) {
+function buildPassage(item, index) {
+  const article = document.createElement("article");
+  article.className = "result-item";
+
+  const evidence = document.createElement("div");
+  const rank = document.createElement("p");
+  rank.className = "result-rank";
+  rank.textContent = `PASSAGE ${String(index + 1).padStart(2, "0")}`;
+  const source = document.createElement("h3");
+  source.className = "result-source";
+  source.textContent = item.source_filename;
+  const page = document.createElement("p");
+  page.className = "result-page";
+  page.textContent = `Page ${item.page}`;
+  evidence.append(rank, source, page);
+
+  const content = document.createElement("div");
+  content.className = "result-content";
+  const text = document.createElement("p");
+  text.className = "result-text";
+  text.textContent = item.text;
+
+  const metadata = document.createElement("dl");
+  metadata.className = "result-metadata";
+  metadata.append(
+    metadataRow("L2 DISTANCE", Number(item.l2_distance).toFixed(6), "result-distance"),
+    metadataRow("CHUNK", String(item.chunk_index)),
+  );
+
+  const technicalDetails = document.createElement("details");
+  technicalDetails.className = "technical-details result-technical-details";
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "TECHNICAL DETAILS";
+  const technicalMetadata = document.createElement("dl");
+  technicalMetadata.append(
+    metadataRow("DOCUMENT ID", item.document_id),
+    metadataRow("CHUNK ID", item.chunk_id),
+  );
+  technicalDetails.append(detailsSummary, technicalMetadata);
+  content.append(text, metadata, technicalDetails);
+
+  article.append(evidence, content);
+  return article;
+}
+
+function buildCitation(citation, passages) {
+  const item = document.createElement("li");
+  item.className = "citation-item";
+  const sourceLabel = document.createElement("p");
+  sourceLabel.className = "citation-label";
+  sourceLabel.textContent = `SOURCE ${String(citation.source_id).padStart(2, "0")}`;
+  const filename = document.createElement("h4");
+  filename.textContent = citation.source_filename;
+  const location = document.createElement("p");
+  location.textContent = `Page ${citation.page} · Chunk ${citation.chunk_index}`;
+
+  const passage = passages[citation.source_id - 1];
+  if (passage) {
+    const distance = document.createElement("p");
+    distance.className = "citation-distance";
+    distance.textContent = `L2 ${Number(passage.l2_distance).toFixed(6)}`;
+    item.append(sourceLabel, filename, location, distance);
+  } else {
+    item.append(sourceLabel, filename, location);
+  }
+  return item;
+}
+
+function renderAnswer(payload) {
   results.replaceChildren();
   resultsSummary.hidden = false;
   resultsSummary.textContent = (
-    `${items.length} PASSAGE${items.length === 1 ? "" : "S"} · LOWER DISTANCE = CLOSER MATCH`
+    `${payload.citations.length} VERIFIED SOURCE${payload.citations.length === 1 ? "" : "S"}`
+    + ` · ${payload.retrieved_passages.length} PASSAGES RETRIEVED`
   );
 
-  if (items.length === 0) {
-    renderEmptyState("No matching passages found.", false);
-    return;
+  const answer = document.createElement("article");
+  answer.className = "answer-block";
+  const answerLabel = document.createElement("p");
+  answerLabel.className = "answer-label";
+  answerLabel.textContent = payload.insufficient_evidence
+    ? "INSUFFICIENT EVIDENCE"
+    : "ANSWER";
+  const answerText = document.createElement("p");
+  answerText.className = "answer-text";
+  answerText.textContent = payload.answer;
+  answer.append(answerLabel, answerText);
+
+  const sources = document.createElement("section");
+  sources.className = "sources-block";
+  const sourcesHeading = document.createElement("h3");
+  sourcesHeading.textContent = "SOURCES";
+  sources.append(sourcesHeading);
+  if (payload.citations.length > 0) {
+    const sourceList = document.createElement("ol");
+    sourceList.className = "citation-list";
+    payload.citations.forEach((citation) => {
+      sourceList.append(buildCitation(citation, payload.retrieved_passages));
+    });
+    sources.append(sourceList);
+  } else {
+    const noSources = document.createElement("p");
+    noSources.className = "no-sources";
+    noSources.textContent = "No verified sources support an answer for this question.";
+    sources.append(noSources);
   }
 
-  items.forEach((item, index) => {
-    const article = document.createElement("article");
-    article.className = "result-item";
-
-    const evidence = document.createElement("div");
-    const rank = document.createElement("p");
-    rank.className = "result-rank";
-    rank.textContent = `RESULT ${String(index + 1).padStart(2, "0")}`;
-    const source = document.createElement("h3");
-    source.className = "result-source";
-    source.textContent = item.source_filename;
-    const page = document.createElement("p");
-    page.className = "result-page";
-    page.textContent = `Page ${item.page}`;
-    evidence.append(rank, source, page);
-
-    const content = document.createElement("div");
-    content.className = "result-content";
-    const text = document.createElement("p");
-    text.className = "result-text";
-    text.textContent = item.text;
-
-    const metadata = document.createElement("dl");
-    metadata.className = "result-metadata";
-    metadata.append(
-      metadataRow("L2 DISTANCE", Number(item.l2_distance).toFixed(6), "result-distance"),
-      metadataRow("CHUNK", String(item.chunk_index)),
-    );
-
-    const technicalDetails = document.createElement("details");
-    technicalDetails.className = "technical-details result-technical-details";
-    const detailsSummary = document.createElement("summary");
-    detailsSummary.textContent = "TECHNICAL DETAILS";
-    const technicalMetadata = document.createElement("dl");
-    technicalMetadata.append(
-      metadataRow("DOCUMENT ID", item.document_id),
-      metadataRow("CHUNK ID", item.chunk_id),
-    );
-    technicalDetails.append(detailsSummary, technicalMetadata);
-    content.append(text, metadata, technicalDetails);
-
-    article.append(evidence, content);
-    results.append(article);
-  });
-}
-
-function renderEmptyState(message, hideSummary = true) {
-  results.replaceChildren();
-  resultsSummary.hidden = hideSummary;
-  const empty = document.createElement("div");
-  empty.className = "empty-state";
-  const copy = document.createElement("p");
-  copy.textContent = message;
-  empty.append(copy);
-  results.append(empty);
+  const retrievalDetails = document.createElement("details");
+  retrievalDetails.className = "retrieval-details";
+  const retrievalSummary = document.createElement("summary");
+  retrievalSummary.textContent = (
+    `VIEW RETRIEVED PASSAGES · ${payload.retrieved_passages.length}`
+  );
+  const passageList = document.createElement("div");
+  passageList.className = "retrieved-passages";
+  if (payload.retrieved_passages.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "no-sources";
+    empty.textContent = "No passages were retrieved.";
+    passageList.append(empty);
+  } else {
+    payload.retrieved_passages.forEach((item, index) => {
+      passageList.append(buildPassage(item, index));
+    });
+  }
+  retrievalDetails.append(retrievalSummary, passageList);
+  results.append(answer, sources, retrievalDetails);
 }
 
 function updateSearchButton() {
   const topKValue = Number(topK.value);
   searchButton.disabled = (
-    searchInFlight || !searchQuery.value.trim() || topKValue < 1 || topKValue > 50
+    answerInFlight || !searchQuery.value.trim() || topKValue < 1 || topKValue > 10
   );
 }
 
@@ -255,60 +326,71 @@ promptButtons.forEach((button) => {
 
 searchForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const query = searchQuery.value.trim();
+  const question = searchQuery.value.trim();
   const topKValue = Number(topK.value);
-  if (!query || topKValue < 1 || topKValue > 50) {
-    updateStatus(searchStatus, "error", "ENTER A QUESTION AND CHOOSE THE NUMBER OF RESULTS");
+  if (!question || topKValue < 1 || topKValue > 10) {
+    updateStatus(searchStatus, "error", "ENTER A QUESTION AND CHOOSE THE NUMBER OF PASSAGES");
     updateSearchButton();
     return;
   }
 
   searchButton.disabled = true;
-  searchInFlight = true;
+  answerInFlight = true;
   searchQuery.disabled = true;
   topK.disabled = true;
   promptButtons.forEach((button) => { button.disabled = true; });
-  searchButton.querySelector("span:first-child").textContent = "SEARCHING";
+  searchButton.querySelector("span:first-child").textContent = "GENERATING";
   searchForm.setAttribute("aria-busy", "true");
-  updateStatus(searchStatus, "loading", "FINDING MATCHING PASSAGES");
+  updateStatus(searchStatus, "loading", "RETRIEVING EVIDENCE + GENERATING ANSWER");
 
   try {
-    const payload = await requestJson("/search", {
+    const payload = await requestJson("/answer", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, top_k: topKValue }),
+      body: JSON.stringify({ question, top_k: topKValue }),
     });
-    renderResults(payload.results);
+    renderAnswer(payload);
     updateStatus(
       searchStatus,
       "success",
-      `${payload.count} MATCHING PASSAGE${payload.count === 1 ? "" : "S"} FOUND`,
+      payload.insufficient_evidence
+        ? "INSUFFICIENT RETRIEVED EVIDENCE"
+        : `${payload.citations.length} VERIFIED SOURCE${payload.citations.length === 1 ? "" : "S"}`,
     );
-    document.querySelector(".results-section").scrollIntoView({ behavior: "smooth", block: "start" });
+    document.querySelector(".results-section").scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
   } catch (error) {
-    updateStatus(searchStatus, "error", `SEARCH FAILED — ${error.message}`);
+    updateStatus(searchStatus, "error", `ANSWER FAILED — ${error.message}`);
   } finally {
-    searchInFlight = false;
+    answerInFlight = false;
     searchQuery.disabled = false;
     topK.disabled = false;
     promptButtons.forEach((button) => { button.disabled = false; });
     searchForm.removeAttribute("aria-busy");
-    searchButton.querySelector("span:first-child").textContent = "SEARCH REPORT";
+    searchButton.querySelector("span:first-child").textContent = "GENERATE GROUNDED ANSWER";
     updateSearchButton();
   }
 });
 
-async function updateEmbeddingMode() {
+async function updateProviderMode() {
   try {
     const health = await requestJson("/health");
-    if (health.embedding_provider === "azure") {
-      embeddingModeLabel.textContent = "SEMANTIC MODE · AZURE EMBEDDINGS";
-      embeddingModeHelper.textContent = "Semantic ranking uses the configured Azure embedding provider.";
+    if (health.embedding_provider === "simulated") {
+      embeddingModeLabel.textContent = "TEST MODE · SIMULATED EMBEDDINGS";
+      embeddingModeHelper.textContent = (
+        "Pipeline mechanics only. Simulated vectors do not provide semantic similarity."
+      );
+      return;
     }
+    embeddingModeLabel.textContent = (
+      `LOCAL EMBEDDINGS + ${health.answer_model} · ${health.answer_provider}`
+    ).toUpperCase();
   } catch {
-    embeddingModeLabel.textContent = "EMBEDDING MODE UNAVAILABLE";
-    embeddingModeHelper.textContent = "Check the application health endpoint for configuration status.";
+    embeddingModeLabel.textContent = "PROVIDER STATUS UNAVAILABLE";
+    embeddingModeHelper.textContent = "Check the health endpoint for configuration status.";
   }
 }
 
-updateEmbeddingMode();
+updateProviderMode();

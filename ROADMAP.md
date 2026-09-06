@@ -1,13 +1,13 @@
 # Roadmap
 
-This roadmap keeps the project focused on financial document ingestion and vector retrieval. Answer generation is a separate possible iteration, not part of the current system.
+This roadmap keeps the project focused on a small grounded-QA workflow over financial documents.
 
 ## Implemented
 
-- FastAPI endpoints for health, PDF upload, and vector search.
+- FastAPI endpoints for health, PDF upload, vector search, and grounded answers.
 - Text extraction from PDFs with page-level provenance.
 - Fixed-size character chunking with overlap and sequential chunk indexes.
-- Explicit simulated and Azure OpenAI embedding providers.
+- Local multilingual MiniLM embeddings, with deterministic simulated vectors limited to tests.
 - PostgreSQL persistence with pgvector and exact L2 retrieval.
 - Source filename, page number, and chunk index in search results.
 - Automatic pgvector extension and table bootstrap for a clean Compose start.
@@ -15,27 +15,23 @@ This roadmap keeps the project focused on financial document ingestion and vecto
 - Isolated integration-test schemas plus pytest, Ruff, and mypy validation.
 - Local Docker configuration that excludes secrets from the image context.
 - Lightweight browser interface for PDF ingestion and provenance-aware retrieval.
+- Grounded answer generation with DeepSeek V4 Pro through OpenCode Go.
+- Backend-validated source IDs mapped to trusted filename, page, and chunk metadata.
+- Explicit insufficient-evidence behavior for missing or invalid supporting sources.
 
 ## Near-term retrieval improvements
 
 - Build a small, versioned evaluation set for financial retrieval queries.
-- Measure retrieval quality with a real embedding provider.
-- Add batching, timeout, and bounded retry behavior to Azure embedding calls.
+- Measure Portuguese and cross-language retrieval quality with the local embedding model.
+- Evaluate citation correctness and insufficient-evidence behavior.
 - Evaluate alternative chunk sizes and retrieval strategies using evidence from the evaluation set.
+- Add bounded retry and rate-limit behavior if provider failures justify it.
 - Introduce schema migrations only when further schema evolution justifies them.
-
-## Possible later cycle
-
-- Generate grounded answers from retrieved chunks.
-- Return citations that map generated claims to source filename and page.
-- Add explicit insufficient-evidence behavior and evaluate answer grounding.
-
-These capabilities would extend the retrieval foundation into a RAG workflow. They are not implemented today.
 
 ## Intentionally outside the current scope
 
 - OCR for scanned or image-only PDFs.
-- Chat or agents.
+- Chat, conversation memory, or agents.
 - Authentication and multi-user tenancy.
 - Cloud deployment and infrastructure as code.
 - Distributed services, messaging, or approximate vector indexes.

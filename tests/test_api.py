@@ -4,6 +4,36 @@ import pytest
 from httpx import AsyncClient
 from pypdf import PdfWriter
 
+from app.infrastructure.answers import (
+    AnswerService,
+    GeneratedAnswer,
+    GroundingPassage,
+    OpenCodeGoAnswerService,
+)
+
+
+class FakeAnswerService(AnswerService):
+    def __init__(
+        self,
+        source_ids: list[int],
+        answer: str = "O índice de Basileia foi 14,2%.",
+        insufficient_evidence: bool = False,
+    ) -> None:
+        self.source_ids = source_ids
+        self.answer = answer
+        self.insufficient_evidence = insufficient_evidence
+        self.passages: list[GroundingPassage] = []
+
+    async def generate(
+        self, question: str, passages: list[GroundingPassage]
+    ) -> GeneratedAnswer:
+        self.passages = passages
+        return GeneratedAnswer(
+            answer=self.answer,
+            source_ids=self.source_ids,
+            insufficient_evidence=self.insufficient_evidence,
+        )
+
 
 def create_pdf_with_pages(page_texts: list[str]) -> bytes:
     font_id = 3 + (2 * len(page_texts))
@@ -228,3 +258,123 @@ class TestUploadEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["count"] <= 1
+
+
+class TestAnswerEndpoint:
+    @pytest.mark.anyio
+    async def test_answer_maps_internal_source_id_to_trusted_provenance(
+        self, client: AsyncClient
+    ) -> None:
+        from app.api.routers import get_answer_service
+        from app.main import app
+
+        upload = await client.post(
+            "/upload",
+            files={
+                "file": (
+                    "quarterly-report.pdf",
+                    io.BytesIO(
+                        create_pdf_with_pages(
+                            [
+                                "A receita líquida foi de R$ 500 milhões.",
+                                "O índice de Basileia foi 14,2% em março de 2026.",
+                            ]
+                        )
+                    ),
+                    "application/pdf",
+                )
+            },
+        )
+        assert upload.status_code == 200
+
+        answer_service = FakeAnswerService(source_ids=[1])
+        app.dependency_overrides[get_answer_service] = lambda: answer_service
+        response = await client.post(
+            "/answer",
+            json={
+                "question": "O índice de Basileia foi 14,2% em março de 2026.",
+                "top_k": 2,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["answer"] == "O índice de Basileia foi 14,2%."
+        assert data["insufficient_evidence"] is False
+        assert len(data["citations"]) == 1
+        citation = data["citations"][0]
+        assert citation["source_id"] == 1
+        assert citation["source_filename"] == "quarterly-report.pdf"
+        assert citation["page"] == 2
+        assert citation["chunk_index"] == 1
+        assert citation["chunk_id"] == data["retrieved_passages"][0]["chunk_id"]
+        assert answer_service.passages[0].text == data["retrieved_passages"][0]["text"]
+
+    @pytest.mark.anyio
+    async def test_answer_rejects_any_source_id_not_in_retrieval_set(
+        self, client: AsyncClient
+    ) -> None:
+        from app.api.routers import get_answer_service
+        from app.main import app
+
+        await client.post(
+            "/upload",
+            files={
+                "file": (
+                    "report.pdf",
+                    io.BytesIO(create_minimal_pdf()),
+                    "application/pdf",
+                )
+            },
+        )
+        app.dependency_overrides[get_answer_service] = lambda: FakeAnswerService(
+            source_ids=[1, 99]
+        )
+
+        response = await client.post(
+            "/answer",
+            json={"question": "Net revenue was 500 million", "top_k": 1},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["insufficient_evidence"] is True
+        assert data["citations"] == []
+        assert "not contain enough evidence" in data["answer"]
+
+    @pytest.mark.anyio
+    async def test_answer_returns_503_when_provider_key_is_missing(
+        self, client: AsyncClient
+    ) -> None:
+        from app.api.routers import get_answer_service
+        from app.main import app
+
+        await client.post(
+            "/upload",
+            files={
+                "file": (
+                    "report.pdf",
+                    io.BytesIO(create_minimal_pdf()),
+                    "application/pdf",
+                )
+            },
+        )
+        missing_key_service = OpenCodeGoAnswerService(api_key="")
+        app.dependency_overrides[get_answer_service] = lambda: missing_key_service
+
+        response = await client.post(
+            "/answer",
+            json={"question": "Net revenue was 500 million", "top_k": 1},
+        )
+
+        assert response.status_code == 503
+        assert "OPENCODE_GO_API_KEY" in response.json()["detail"]
+        await missing_key_service.close()
+
+    @pytest.mark.anyio
+    async def test_answer_rejects_blank_question(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/answer", json={"question": "   ", "top_k": 3}
+        )
+
+        assert response.status_code == 422

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.chunker import Chunk, Chunker
 from app.domain.document import Document
+from app.infrastructure.answers import AnswerService, GroundingPassage
 from app.infrastructure.embeddings import EmbeddingService
 from app.infrastructure.repositories import ChunkRepository
 
@@ -44,6 +45,22 @@ class SearchResult(TypedDict):
     l2_distance: float
 
 
+class AnswerCitation(TypedDict):
+    source_id: int
+    chunk_id: str
+    document_id: str
+    source_filename: str
+    page: int
+    chunk_index: int
+
+
+class AnswerResult(TypedDict):
+    answer: str
+    insufficient_evidence: bool
+    citations: list[AnswerCitation]
+    retrieved_passages: list[SearchResult]
+
+
 class UploadUseCase:
     def __init__(
         self,
@@ -77,7 +94,7 @@ class UploadUseCase:
             next_chunk_index += len(page_chunks)
 
         texts = [chunk.text for chunk, _ in chunks_with_pages]
-        embeddings = await self.embedding_service.embed(texts)
+        embeddings = await self.embedding_service.embed_documents(texts)
 
         saved_chunks: list[UploadedChunk] = []
         for (chunk, page_number), embedding in zip(
@@ -142,8 +159,7 @@ class SearchUseCase:
         self.repository = ChunkRepository(session)
 
     async def execute(self, query: str, top_k: int = 5) -> list[SearchResult]:
-        embeddings = await self.embedding_service.embed([query])
-        query_embedding = embeddings[0]
+        query_embedding = await self.embedding_service.embed_query(query)
         results = await self.repository.search_similar(
             query_embedding, top_k=top_k
         )
@@ -159,3 +175,83 @@ class SearchUseCase:
             }
             for result in results
         ]
+
+
+class AnswerUseCase:
+    def __init__(
+        self,
+        session: AsyncSession,
+        embedding_service: EmbeddingService,
+        answer_service: AnswerService,
+    ) -> None:
+        self.search = SearchUseCase(session, embedding_service)
+        self.answer_service = answer_service
+
+    async def execute(self, question: str, top_k: int = 5) -> AnswerResult:
+        retrieved = await self.search.execute(question, top_k=top_k)
+        if not retrieved:
+            return self._insufficient_result(retrieved)
+
+        passages = [
+            GroundingPassage(source_id=index, text=result["text"])
+            for index, result in enumerate(retrieved, start=1)
+        ]
+        generated = await self.answer_service.generate(question, passages)
+
+        unique_source_ids = list(dict.fromkeys(generated.source_ids))
+        retrieved_by_id = {
+            index: result for index, result in enumerate(retrieved, start=1)
+        }
+        has_untrusted_source = any(
+            source_id not in retrieved_by_id for source_id in unique_source_ids
+        )
+        if (
+            generated.insufficient_evidence
+            or not unique_source_ids
+            or has_untrusted_source
+        ):
+            return self._insufficient_result(
+                retrieved,
+                answer=(
+                    generated.answer if generated.insufficient_evidence else None
+                ),
+            )
+
+        citations = [
+            self._citation_from_result(source_id, retrieved_by_id[source_id])
+            for source_id in unique_source_ids
+        ]
+        return {
+            "answer": generated.answer,
+            "insufficient_evidence": False,
+            "citations": citations,
+            "retrieved_passages": retrieved,
+        }
+
+    @staticmethod
+    def _citation_from_result(
+        source_id: int, result: SearchResult
+    ) -> AnswerCitation:
+        return {
+            "source_id": source_id,
+            "chunk_id": result["chunk_id"],
+            "document_id": result["document_id"],
+            "source_filename": result["source_filename"],
+            "page": result["page"],
+            "chunk_index": result["chunk_index"],
+        }
+
+    @staticmethod
+    def _insufficient_result(
+        retrieved: list[SearchResult], answer: str | None = None
+    ) -> AnswerResult:
+        return {
+            "answer": answer
+            or (
+                "The retrieved passages do not contain enough evidence to answer "
+                "this question."
+            ),
+            "insufficient_evidence": True,
+            "citations": [],
+            "retrieved_passages": retrieved,
+        }

@@ -71,12 +71,17 @@ async def repository(db_session: AsyncSession) -> ChunkRepository:
 
 @pytest.fixture
 def embedding_service() -> SimulatedEmbeddingService:
-    return SimulatedEmbeddingService(dimension=1536)
+    return SimulatedEmbeddingService()
 
 
 @pytest_asyncio.fixture
-async def client(db_engine, monkeypatch: pytest.MonkeyPatch):
+async def client(
+    db_engine,
+    embedding_service: SimulatedEmbeddingService,
+    monkeypatch: pytest.MonkeyPatch,
+):
     import app.infrastructure.db as db_module
+    from app.api.routers import get_embedding_service
     from app.main import app
 
     monkeypatch.setattr(db_module, "engine", db_engine)
@@ -87,7 +92,11 @@ async def client(db_engine, monkeypatch: pytest.MonkeyPatch):
             db_engine, class_=AsyncSession, expire_on_commit=False
         ),
     )
+    app.dependency_overrides[get_embedding_service] = lambda: embedding_service
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.clear()

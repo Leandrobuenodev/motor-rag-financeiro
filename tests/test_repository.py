@@ -18,7 +18,7 @@ class TestChunkRepository:
             "O lucro operacional apresentou queda de 12% em relação ao ano anterior.",
             "A previsão do tempo indica sol para os próximos dias.",
         ]
-        embeddings = await embedding_service.embed(texts)
+        embeddings = await embedding_service.embed_documents(texts)
 
         for i, (text, emb) in enumerate(zip(texts, embeddings)):
             await repository.insert(
@@ -31,7 +31,7 @@ class TestChunkRepository:
             )
         await db_session.commit()
 
-        query_embedding = (await embedding_service.embed([texts[0]]))[0]
+        query_embedding = await embedding_service.embed_query(texts[0])
         results = await repository.search_similar(query_embedding, top_k=1)
 
         assert len(results) == 1
@@ -46,8 +46,12 @@ class TestChunkRepository:
         repository: ChunkRepository,
         embedding_service: SimulatedEmbeddingService,
     ):
-        e1 = (await embedding_service.embed(["Balanço ativo circulante"]))[0]
-        e2 = (await embedding_service.embed(["Demonstrativo de resultado"]))[0]
+        e1 = (await embedding_service.embed_documents(
+            ["Balanço ativo circulante"]
+        ))[0]
+        e2 = (await embedding_service.embed_documents(
+            ["Demonstrativo de resultado"]
+        ))[0]
 
         await repository.insert(
             document_id="doc-a",
@@ -67,7 +71,9 @@ class TestChunkRepository:
         )
         await db_session.commit()
 
-        query_emb = (await embedding_service.embed(["Balanço ativo circulante"]))[0]
+        query_emb = await embedding_service.embed_query(
+            "Balanço ativo circulante"
+        )
         results = await repository.search_similar(query_emb, top_k=5)
 
         assert results[0].chunk.document_id == "doc-a"
@@ -82,7 +88,9 @@ class TestChunkRepository:
         repository: ChunkRepository,
         embedding_service: SimulatedEmbeddingService,
     ):
-        embeddings = await embedding_service.embed([f"Texto {i}" for i in range(10)])
+        embeddings = await embedding_service.embed_documents(
+            [f"Texto {i}" for i in range(10)]
+        )
         for i, emb in enumerate(embeddings):
             await repository.insert(
                 document_id="doc-multi",
@@ -94,7 +102,7 @@ class TestChunkRepository:
             )
         await db_session.commit()
 
-        query_emb = (await embedding_service.embed(["Texto 5"]))[0]
+        query_emb = await embedding_service.embed_query("Texto 5")
         results = await repository.search_similar(query_emb, top_k=3)
 
         assert len(results) == 3
